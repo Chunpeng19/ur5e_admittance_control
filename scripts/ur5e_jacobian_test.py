@@ -4,12 +4,16 @@ import numpy as np
 from copy import deepcopy
 import time
 from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy import signal
+
+from filter import PythonFilter
 
 from ur_kinematics.ur_kin_py import forward
 from kinematics import analytical_ik, nearest_ik_solution
 
 from std_msgs.msg import Float64MultiArray, Header
 from sensor_msgs.msg import JointState
+from geometry_msgs.msg import WrenchStamped
 from ur5teleop.msg import jointdata, Joint
 from ur_dashboard_msgs.msg import SafetyMode
 from ur_dashboard_msgs.srv import IsProgramRunning, GetSafetyMode
@@ -22,6 +26,7 @@ from pykdl_utils.kdl_kinematics import KDLKinematics
 robot = URDF.from_xml_file("/home/ur5e/ur_ws/src/ur5e_admittance_control/config/ur5e.urdf")
 
 joint_vel_lim = 1.0
+sample_rate = 500.0
 
 class ur5e_admittance():
     '''Define joint admittance control for ur5e using endeffector wrench info
@@ -48,6 +53,8 @@ class ur5e_admittance():
     current_joint_positions = np.zeros(6)
     current_joint_velocities = np.zeros(6)
 
+    wrench = np.zeros(6)
+
     tree = kdl_tree_from_urdf_model(robot)
     print tree.getNrOfSegments()
 
@@ -56,6 +63,10 @@ class ur5e_admittance():
 
     # forwawrd kinematics
     kdl_kin = KDLKinematics(robot, "base_link", "ee_link")
+
+    fc = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    fs = sample_rate
+    filter = PythonFilter(fc, fs)
 
     def __init__(self, test_control_signal = False, conservative_joint_lims = True):
         '''set up controller class variables & parameters'''
@@ -71,6 +82,10 @@ class ur5e_admittance():
         rospy.Subscriber('/ur_hardware_interface/safety_mode', SafetyMode, self.safety_callback)
         #joint feedback subscriber
         rospy.Subscriber("joint_states", JointState, self.joint_state_callback)
+
+        #wrench feedback
+        rospy.Subscriber("wrench", WrenchStamped, self.wrench_callback)
+
         #service to check if robot program is running
         rospy.wait_for_service('/ur_hardware_interface/dashboard/program_running')
         self.remote_control_running = rospy.ServiceProxy('ur_hardware_interface/dashboard/program_running', IsProgramRunning)
@@ -104,6 +119,9 @@ class ur5e_admittance():
     def joint_state_callback(self, data):
         self.current_joint_positions[self.joint_reorder] = data.position
         self.current_joint_velocities[self.joint_reorder] = data.velocity
+
+    def wrench_callback(self, data):
+        self.current_wrench = np.array([data.wrench.force.x, data.wrench.force.y, data.wrench.force.z, data.wrench.torque.x, data.wrench.torque.y, data.wrench.torque.z])
 
     # def wrap_relative_angles(self):
     def safety_callback(self, data):
@@ -339,7 +357,12 @@ class ur5e_admittance():
         endeffector_vel = np.zeros(6)
         pose = np.zeros(6)
         pose_kdl = np.zeros(6)
+        wrench = np.zeros(6)
+        filtered_wrench = np.zeros(6)
+        joint_desired_torque = np.zeros(6)
         rate = rospy.Rate(500)
+
+        self.filter.calculate_initial_values(self.wrench)
 
         while not self.shutdown and self.safety_mode == 1: #chutdown is set on ctrl-c.
 
@@ -351,6 +374,19 @@ class ur5e_admittance():
             pose = forward(self.current_joint_positions)
             pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
             # print(pose - pose_kdl)
+
+            wrench = self.current_wrench
+            filtered_wrench = np.array(self.filter.filter(wrench))
+            #filtered_wrench = self.butter_highpass_filter(self.current_wrench, 1.0, 100.0, 500.0)
+            #print("filtered:")
+            #print(filtered_wrench)
+            #print("raw")
+            #print(wrench)
+            # need wrench filtering
+            np.matmul(J.transpose(), filtered_wrench, out = joint_desired_torque)
+            print(joint_desired_torque)
+
+            # need joint inertia
 
             #publish
             self.vel_ref.data = vel_ref_array
