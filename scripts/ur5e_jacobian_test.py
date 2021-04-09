@@ -98,6 +98,10 @@ class ur5e_admittance():
                             Float64MultiArray,
                             queue_size=1)
 
+        self.wrench_global_pub = rospy.Publisher("/wrench_global",
+                            Float64MultiArray,
+                            queue_size=1)
+
         #set shutdown safety behavior
         rospy.on_shutdown(self.shutdown_safe)
         time.sleep(0.5)
@@ -105,6 +109,8 @@ class ur5e_admittance():
 
         self.velocity = Float64MultiArray(data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.vel_ref = Float64MultiArray(data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+        self.wrench_global = Float64MultiArray(data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         print("Joint Limmits: ")
         print(self.upper_lims)
@@ -355,10 +361,12 @@ class ur5e_admittance():
 
         vel_ref_array = np.zeros(6)
         endeffector_vel = np.zeros(6)
-        pose = np.zeros(6)
-        pose_kdl = np.zeros(6)
+        pose = np.zeros((4,4))
+        pose_kdl = np.zeros((4,4))
+        pose_rt = np.zeros((3,3))
         wrench = np.zeros(6)
-        filtered_wrench = np.zeros(6)
+        wrench_global = np.zeros(6)
+        filtered_wrench_global = np.zeros(6)
         joint_desired_torque = np.zeros(6)
         rate = rospy.Rate(500)
 
@@ -372,21 +380,27 @@ class ur5e_admittance():
             #print(endeffector_vel)
 
             pose = forward(self.current_joint_positions)
+            pose_rt = pose[:3,:3]
+            #print(pose_kdl)
             pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
-            # print(pose - pose_kdl)
+            #print(pose)
 
             wrench = self.current_wrench
-            filtered_wrench = np.array(self.filter.filter(wrench))
+            np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
+            np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+            filtered_wrench_global = np.array(self.filter.filter(wrench_global))
             #filtered_wrench = self.butter_highpass_filter(self.current_wrench, 1.0, 100.0, 500.0)
             #print("filtered:")
             #print(filtered_wrench)
             #print("raw")
             #print(wrench)
             # need wrench filtering
-            np.matmul(J.transpose(), filtered_wrench, out = joint_desired_torque)
+            np.matmul(J.transpose(), filtered_wrench_global, out = joint_desired_torque)
             print(joint_desired_torque)
 
             # need joint inertia
+            self.wrench_global.data = wrench_global
+            self.wrench_global_pub.publish(self.wrench_global)
 
             #publish
             self.vel_ref.data = vel_ref_array
