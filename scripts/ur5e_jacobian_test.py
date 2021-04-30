@@ -49,6 +49,14 @@ class ur5e_admittance():
     conservative_upper_lims = (np.pi/180)*np.array([135, -45.0, 140.0, -45.0, -45.0, 225.0])
     max_joint_speeds = np.array([3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
 
+    # define local cylinder joint inertia matrix
+    J1l = np.matrix([[0.0103, 0, 0, 0], [0, 0.0103, 0, 0], [0, 0, 0.0067, 0], [0, 0, 0, 3.7]])
+    J2l = np.matrix([[0.1834, 0, 0, -1.7835], [0, 0.6582, 0, 0], [0, 0, 0.4984, 1.1582], [-1.7835, 0, 1.1582, 8.393]])
+    J3l = np.matrix([[0.0065, 0, 0, -0.4834], [0, 0.1352, 0, 0], [0, 0, 0.1351, 0.0159], [-0.4834, 0, 0.0159, 2.275]])
+    J4l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
+    J5l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
+    J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, -0.0047], [0, 0, -0.0047, 0.1879]])
+
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
     current_joint_velocities = np.zeros(6)
@@ -58,11 +66,19 @@ class ur5e_admittance():
     tree = kdl_tree_from_urdf_model(robot)
     print tree.getNrOfSegments()
 
-    chain = tree.getChain("base_link", "ee_link")
-    print chain.getNrOfJoints()
-
     # forwawrd kinematics
-    kdl_kin = KDLKinematics(robot, "base_link", "ee_link")
+    chain = tree.getChain("base_link", "wrist_3_link")
+    print chain.getNrOfJoints()
+    kdl_kin = KDLKinematics(robot, "base_link", "wrist_3_link")
+
+    chain = tree.getChain("base_link", "shoulder_link")
+    print chain.getNrOfJoints()
+    kdl_kin_1tb = KDLKinematics(robot, "base_link", "shoulder_link")
+    #kdl_kin_2t1 = KDLKinematics(robot, "shoulder_link", "upper_arm_link")
+    #kdl_kin_3t2 = KDLKinematics(robot, "upper_arm_link", "forearm_link")
+    #kdl_kin_4t3 = KDLKinematics(robot, "forearm_link", "wrist_1_link")
+    #kdl_kin_5t4 = KDLKinematics(robot, "wrist_1_link", "wrist_2_link")
+    #kdl_kin_6t5 = KDLKinematics(robot, "wrist_2_link", "wrist_3_link")
 
     fc = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
     fs = sample_rate
@@ -375,15 +391,11 @@ class ur5e_admittance():
         while not self.shutdown and self.safety_mode == 1: #chutdown is set on ctrl-c.
 
             # jacobian
-            J = self.kdl_kin.jacobian(self.current_joint_positions)
-            np.matmul(J, self.current_joint_velocities, out = endeffector_vel)
-            #print(endeffector_vel)
+            Ja = self.kdl_kin.jacobian(self.current_joint_positions)
 
-            pose = forward(self.current_joint_positions)
-            pose_rt = pose[:3,:3]
-            #print(pose_kdl)
             pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
-            #print(pose)
+            pose_rt = pose_kdl[:3,:3]
+            #print(pose_kdl)
 
             wrench = self.current_wrench
             np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
@@ -395,10 +407,18 @@ class ur5e_admittance():
             #print("raw")
             #print(wrench)
             # need wrench filtering
-            np.matmul(J.transpose(), filtered_wrench_global, out = joint_desired_torque)
-            print(joint_desired_torque)
+            np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
+            #print(joint_desired_torque)
 
-            # need joint inertia
+            # joint inertia
+            T1tb = self.kdl_kin_1tb.forwawrd(self.current_joint_positions[:1])
+            #T2t1 = self.kdl_kin_2t1.forwawrd(self.current_joint_positions)
+            #T3t2 = self.kdl_kin_3t2.forwawrd(self.current_joint_positions)
+            #T4t3 = self.kdl_kin_4t3.forwawrd(self.current_joint_positions)
+            #T5t4 = self.kdl_kin_5t4.forwawrd(self.current_joint_positions)
+            #T6t5 = self.kdl_kin_6t5.forwawrd(self.current_joint_positions)
+            print(T1tb)
+
             self.wrench_global.data = wrench_global
             self.wrench_global_pub.publish(self.wrench_global)
 
