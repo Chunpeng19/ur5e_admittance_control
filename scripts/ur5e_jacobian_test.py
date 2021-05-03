@@ -380,7 +380,10 @@ class ur5e_admittance():
         max_pos_error = 0.5 #radians/sec
         low_joint_vel_lim = 0.5
 
+        admittance_feedback_gain = 10.0
+
         vel_ref_array = np.zeros(6)
+        vr = np.zeros(6)
         endeffector_vel = np.zeros(6)
         pose = np.zeros((4,4))
         pose_kdl = np.zeros((4,4))
@@ -406,13 +409,6 @@ class ur5e_admittance():
             wrench = self.current_wrench
             np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
             np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
-            #filtered_wrench_global = np.array(self.filter.filter(wrench_global))
-            #filtered_wrench = self.butter_highpass_filter(self.current_wrench, 1.0, 100.0, 500.0)
-            #print("filtered:")
-            #print(filtered_wrench)
-            #print("raw")
-            #print(wrench)
-            # need wrench filtering
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
             #print(joint_desired_torque)
 
@@ -437,8 +433,12 @@ class ur5e_admittance():
             inertia[3] = J4[2,2]
             inertia[4] = J5[2,2]
             inertia[5] = J6[2,2]
-            print(inertia)
+            # need to add some safety inertia
+            #print(inertia)
 
+            acc = np.divide(joint_desired_torque, inertia)
+            vr += acc - admittance_feedback_gain*self.current_joint_velocities
+            print(vr)
 
             self.wrench_global.data = wrench_global
             self.wrench_global_pub.publish(self.wrench_global)
