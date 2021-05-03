@@ -8,7 +8,7 @@ from scipy import signal
 
 from filter import PythonFilter
 
-from ur_kinematics.ur_kin_py import forward
+from ur_kinematics.ur_kin_py import forward, forward_link
 from kinematics import analytical_ik, nearest_ik_solution
 
 from std_msgs.msg import Float64MultiArray, Header
@@ -48,6 +48,11 @@ class ur5e_admittance():
     conservative_lower_lims = (np.pi/180)*np.array([45.0, -100.0, 45.0, -135.0, -135.0, 135.0])
     conservative_upper_lims = (np.pi/180)*np.array([135, -45.0, 140.0, -45.0, -45.0, 225.0])
     max_joint_speeds = np.array([3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
+
+    # define DH-parameters
+    DH_alpha = (np.pi/180)/2*np.array([0,1,0,0,1,-1])
+    DH_a = [0.0,0.0,-0.42500,-0.39225,0.0,0.0]
+    DH_d = [0.1625,0.0,0.0,0.1333,0.0997,0.0996]
 
     # define local cylinder joint inertia matrix
     J1l = np.matrix([[0.0103, 0, 0, 0], [0, 0.0103, 0, 0], [0, 0, 0.0067, 0], [0, 0, 0, 3.7]])
@@ -382,6 +387,7 @@ class ur5e_admittance():
         pose_rt = np.zeros((3,3))
         wrench = np.zeros(6)
         wrench_global = np.zeros(6)
+        inertia = np.zeros(6)
         filtered_wrench_global = np.zeros(6)
         joint_desired_torque = np.zeros(6)
         rate = rospy.Rate(500)
@@ -400,7 +406,7 @@ class ur5e_admittance():
             wrench = self.current_wrench
             np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
             np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
-            filtered_wrench_global = np.array(self.filter.filter(wrench_global))
+            #filtered_wrench_global = np.array(self.filter.filter(wrench_global))
             #filtered_wrench = self.butter_highpass_filter(self.current_wrench, 1.0, 100.0, 500.0)
             #print("filtered:")
             #print(filtered_wrench)
@@ -411,13 +417,28 @@ class ur5e_admittance():
             #print(joint_desired_torque)
 
             # joint inertia
-            T1tb = self.kdl_kin_1tb.forwawrd(self.current_joint_positions[:1])
-            #T2t1 = self.kdl_kin_2t1.forwawrd(self.current_joint_positions)
-            #T3t2 = self.kdl_kin_3t2.forwawrd(self.current_joint_positions)
-            #T4t3 = self.kdl_kin_4t3.forwawrd(self.current_joint_positions)
-            #T5t4 = self.kdl_kin_5t4.forwawrd(self.current_joint_positions)
-            #T6t5 = self.kdl_kin_6t5.forwawrd(self.current_joint_positions)
-            print(T1tb)
+            # T1tb = forward_link(np.array([self.DH_alpha[0], self.DH_a[0], self.DH_d[0], self.current_joint_positions[0]]))
+            T2t1 = forward_link(np.array([self.DH_alpha[1], self.DH_a[1], self.DH_d[1], self.current_joint_positions[1]]))
+            T3t2 = forward_link(np.array([self.DH_alpha[2], self.DH_a[2], self.DH_d[2], self.current_joint_positions[2]]))
+            T4t3 = forward_link(np.array([self.DH_alpha[3], self.DH_a[3], self.DH_d[3], self.current_joint_positions[3]]))
+            T5t4 = forward_link(np.array([self.DH_alpha[4], self.DH_a[4], self.DH_d[4], self.current_joint_positions[4]]))
+            T6t5 = forward_link(np.array([self.DH_alpha[5], self.DH_a[5], self.DH_d[5], self.current_joint_positions[5]]))
+
+            J6 = self.J6l
+            J5 = self.J5l + np.matmul(np.matmul(T6t5,J6),T6t5.transpose())
+            J4 = self.J4l + np.matmul(np.matmul(T5t4,J5),T5t4.transpose())
+            J3 = self.J3l + np.matmul(np.matmul(T4t3,J4),T4t3.transpose())
+            J2 = self.J2l + np.matmul(np.matmul(T3t2,J3),T3t2.transpose())
+            J1 = self.J1l + np.matmul(np.matmul(T2t1,J2),T2t1.transpose())
+
+            inertia[0] = J1[2,2]
+            inertia[1] = J2[2,2]
+            inertia[2] = J3[2,2]
+            inertia[3] = J4[2,2]
+            inertia[4] = J5[2,2]
+            inertia[5] = J6[2,2]
+            print(inertia)
+
 
             self.wrench_global.data = wrench_global
             self.wrench_global_pub.publish(self.wrench_global)
