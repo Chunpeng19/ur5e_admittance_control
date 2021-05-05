@@ -39,7 +39,9 @@ class ur5e_admittance():
 
     joint_p_gains_varaible = np.array([5.0, 5.0, 5.0, 10.0, 10.0, 10.0])
 
+    #default_pos = (np.pi/180)*np.array([90.0, -90.0, 90.0, -90.0, -90.0, 180.0])
     default_pos = (np.pi/180)*np.array([90.0, -90.0, 90.0, -90.0, -90.0, 180.0])
+
 
     robot_ref_pos = deepcopy(default_pos)
 
@@ -50,17 +52,17 @@ class ur5e_admittance():
     max_joint_speeds = np.array([3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
 
     # define DH-parameters
-    DH_alpha = (np.pi/180)/2*np.array([0,1,0,0,1,-1])
+    DH_alpha = np.pi/2*np.array([0,1,0,0,1,-1])
     DH_a = [0.0,0.0,-0.42500,-0.39225,0.0,0.0]
     DH_d = [0.1625,0.0,0.0,0.1333,0.0997,0.0996]
 
     # define local cylinder joint inertia matrix
     J1l = np.matrix([[0.0103, 0, 0, 0], [0, 0.0103, 0, 0], [0, 0, 0.0067, 0], [0, 0, 0, 3.7]])
-    J2l = np.matrix([[0.1834, 0, 0, -1.7835], [0, 0.6582, 0, 0], [0, 0, 0.4984, 1.1582], [-1.7835, 0, 1.1582, 8.393]])
-    J3l = np.matrix([[0.0065, 0, 0, -0.4834], [0, 0.1352, 0, 0], [0, 0, 0.1351, 0.0159], [-0.4834, 0, 0.0159, 2.275]])
+    J2l = np.matrix([[0.1834, 0, 0, 0], [0, 0.6582, 0, 0], [0, 0, 0.4984, 0], [0, 0, 0, 8.393]])
+    J3l = np.matrix([[0.0065, 0, 0, 0], [0, 0.1352, 0, 0], [0, 0, 0.1351, 0], [0, 0, 0, 2.275]])
     J4l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
     J5l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
-    J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, -0.0047], [0, 0, -0.0047, 0.1879]])
+    J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, 0], [0, 0, 0, 0.1879]])
 
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
@@ -75,15 +77,6 @@ class ur5e_admittance():
     chain = tree.getChain("base_link", "wrist_3_link")
     print chain.getNrOfJoints()
     kdl_kin = KDLKinematics(robot, "base_link", "wrist_3_link")
-
-    chain = tree.getChain("base_link", "shoulder_link")
-    print chain.getNrOfJoints()
-    kdl_kin_1tb = KDLKinematics(robot, "base_link", "shoulder_link")
-    #kdl_kin_2t1 = KDLKinematics(robot, "shoulder_link", "upper_arm_link")
-    #kdl_kin_3t2 = KDLKinematics(robot, "upper_arm_link", "forearm_link")
-    #kdl_kin_4t3 = KDLKinematics(robot, "forearm_link", "wrist_1_link")
-    #kdl_kin_5t4 = KDLKinematics(robot, "wrist_1_link", "wrist_2_link")
-    #kdl_kin_6t5 = KDLKinematics(robot, "wrist_2_link", "wrist_3_link")
 
     fc = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
     fs = sample_rate
@@ -413,12 +406,12 @@ class ur5e_admittance():
             #print(joint_desired_torque)
 
             # joint inertia
-            # T1tb = forward_link(np.array([self.DH_alpha[0], self.DH_a[0], self.DH_d[0], self.current_joint_positions[0]]))
-            T2t1 = forward_link(np.array([self.DH_alpha[1], self.DH_a[1], self.DH_d[1], self.current_joint_positions[1]]))
-            T3t2 = forward_link(np.array([self.DH_alpha[2], self.DH_a[2], self.DH_d[2], self.current_joint_positions[2]]))
-            T4t3 = forward_link(np.array([self.DH_alpha[3], self.DH_a[3], self.DH_d[3], self.current_joint_positions[3]]))
-            T5t4 = forward_link(np.array([self.DH_alpha[4], self.DH_a[4], self.DH_d[4], self.current_joint_positions[4]]))
-            T6t5 = forward_link(np.array([self.DH_alpha[5], self.DH_a[5], self.DH_d[5], self.current_joint_positions[5]]))
+            T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
+            T2t1 = forward_link(np.array([self.current_joint_positions[1], self.DH_d[1], self.DH_a[1], self.DH_alpha[1]]))
+            T3t2 = forward_link(np.array([self.current_joint_positions[2], self.DH_d[2], self.DH_a[2], self.DH_alpha[2]]))
+            T4t3 = forward_link(np.array([self.current_joint_positions[3], self.DH_d[3], self.DH_a[3], self.DH_alpha[3]]))
+            T5t4 = forward_link(np.array([self.current_joint_positions[4], self.DH_d[4], self.DH_a[4], self.DH_alpha[4]]))
+            T6t5 = forward_link(np.array([self.current_joint_positions[5], self.DH_d[5], self.DH_a[5], self.DH_alpha[5]]))
 
             J6 = self.J6l
             J5 = self.J5l + np.matmul(np.matmul(T6t5,J6),T6t5.transpose())
@@ -426,6 +419,12 @@ class ur5e_admittance():
             J3 = self.J3l + np.matmul(np.matmul(T4t3,J4),T4t3.transpose())
             J2 = self.J2l + np.matmul(np.matmul(T3t2,J3),T3t2.transpose())
             J1 = self.J1l + np.matmul(np.matmul(T2t1,J2),T2t1.transpose())
+
+            #temp = np.matmul(T1tb,T2t1)
+            #temp = np.matmul(temp,T3t2)
+            #temp = np.matmul(temp,T4t3)
+            #temp = np.matmul(temp,T5t4)
+            #temp = np.matmul(temp,T6t5)
 
             inertia[0] = J1[2,2]
             inertia[1] = J2[2,2]
@@ -438,7 +437,7 @@ class ur5e_admittance():
 
             acc = np.divide(joint_desired_torque, inertia)
             vr += acc - admittance_feedback_gain*self.current_joint_velocities
-            print(vr)
+            print(joint_desired_torque)
 
             self.wrench_global.data = wrench_global
             self.wrench_global_pub.publish(self.wrench_global)
