@@ -6,7 +6,7 @@ import time
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy import signal
 
-from filter import PythonFilter
+from filter import PythonHPF
 
 from ur_kinematics.ur_kin_py import forward, forward_link
 from kinematics import analytical_ik, nearest_ik_solution
@@ -51,6 +51,10 @@ class ur5e_admittance():
     conservative_upper_lims = (np.pi/180)*np.array([135, -45.0, 140.0, -45.0, -45.0, 225.0])
     max_joint_speeds = np.array([3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
 
+    fc = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    fs = sample_rate
+    filter = PythonHPF(fc,fs)
+
     # define DH-parameters
     DH_alpha = np.pi/2*np.array([0,1,0,0,1,-1])
     DH_a = [0.0,0.0,-0.42500,-0.39225,0.0,0.0]
@@ -63,6 +67,8 @@ class ur5e_admittance():
     J4l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
     J5l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
     J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, 0], [0, 0, 0, 0.1879]])
+
+    inertia_offset = np.array([0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
 
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
@@ -77,10 +83,6 @@ class ur5e_admittance():
     chain = tree.getChain("base_link", "wrist_3_link")
     print chain.getNrOfJoints()
     kdl_kin = KDLKinematics(robot, "base_link", "wrist_3_link")
-
-    fc = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
-    fs = sample_rate
-    filter = PythonFilter(fc, fs)
 
     def __init__(self, test_control_signal = False, conservative_joint_lims = True):
         '''set up controller class variables & parameters'''
@@ -373,7 +375,8 @@ class ur5e_admittance():
         max_pos_error = 0.5 #radians/sec
         low_joint_vel_lim = 0.5
 
-        admittance_feedback_gain = 10.0
+        virtual_damping = 1.414
+        virtual_stiffness = 1.0
 
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
@@ -388,7 +391,10 @@ class ur5e_admittance():
         joint_desired_torque = np.zeros(6)
         rate = rospy.Rate(500)
 
-        self.filter.calculate_initial_values(self.wrench)
+        self.filter.calculate_initial_values(self.current_wrench)
+
+        start_time = time.time()
+        init_pos = deepcopy(self.current_joint_positions)
 
         while not self.shutdown and self.safety_mode == 1: #chutdown is set on ctrl-c.
 
@@ -400,10 +406,11 @@ class ur5e_admittance():
             #print(pose_kdl)
 
             wrench = self.current_wrench
-            np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
-            np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+            filtered_wrench = np.array(self.filter.filter(wrench))
+            np.matmul(pose_rt, filtered_wrench[:3], out = wrench_global[:3])
+            np.matmul(pose_rt, filtered_wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
-            #print(joint_desired_torque)
+            #print(filtered_wrench)
 
             # joint inertia
             T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
@@ -433,19 +440,23 @@ class ur5e_admittance():
             inertia[4] = J5[2,2]
             inertia[5] = J6[2,2]
             # need to add some safety inertia
-            #print(inertia)
 
-            acc = np.divide(joint_desired_torque, inertia)
-            vr += acc - admittance_feedback_gain*self.current_joint_velocities
-            print(joint_desired_torque)
+            acc = np.divide(joint_desired_torque, inertia + self.inertia_offset)
+            pos_relative = self.current_joint_positions - init_pos
+            if time.time() - start_time > 2.0:
+                vr += (acc - virtual_damping*self.current_joint_velocities - virtual_stiffness*pos_relative) / sample_rate
 
-            self.wrench_global.data = wrench_global
+            self.wrench_global.data = vr
             self.wrench_global_pub.publish(self.wrench_global)
 
+            vel_ref_array[2] = vr[2]
+            vel_ref_array[0] = vr[0]
+            #print(vr[2])
+            np.clip(vel_ref_array,-self.max_joint_speeds,self.max_joint_speeds,vel_ref_array)
             #publish
             self.vel_ref.data = vel_ref_array
             # self.ref_vel_pub.publish(self.vel_ref)
-            # self.vel_pub.publish(self.vel_ref)
+            self.vel_pub.publish(self.vel_ref)
             #wait
             rate.sleep()
         self.stop_arm(safe = True)
