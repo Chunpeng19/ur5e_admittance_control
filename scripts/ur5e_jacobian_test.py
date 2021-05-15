@@ -68,7 +68,7 @@ class ur5e_admittance():
     J5l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
     J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, 0], [0, 0, 0, 0.1879]])
 
-    inertia_offset = np.array([0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
+    inertia_offset = np.array([0.4, 0.4, 0.4, 0.2, 0.2, 0.2])
 
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
@@ -375,19 +375,24 @@ class ur5e_admittance():
         max_pos_error = 0.5 #radians/sec
         low_joint_vel_lim = 0.5
 
-        virtual_damping = 1.414
-        virtual_stiffness = 1.0
+        virtual_damping = 2 * 0.707 * 0.3
+        virtual_stiffness = 0.09
+
+        sensor_force_threshold = 0.5
+        sensor_torque_threshold = 0.01
 
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
+        pr = np.zeros(6)
         endeffector_vel = np.zeros(6)
         pose = np.zeros((4,4))
         pose_kdl = np.zeros((4,4))
         pose_rt = np.zeros((3,3))
         wrench = np.zeros(6)
+        filtered_wrench = np.zeros(6)
+        filtered_wrench_clip = np.zeros(6)
         wrench_global = np.zeros(6)
         inertia = np.zeros(6)
-        filtered_wrench_global = np.zeros(6)
         joint_desired_torque = np.zeros(6)
         rate = rospy.Rate(500)
 
@@ -407,6 +412,9 @@ class ur5e_admittance():
 
             wrench = self.current_wrench
             filtered_wrench = np.array(self.filter.filter(wrench))
+            #np.clip(filtered_wrench[:3], -sensor_force_threshold, sensor_force_threshold, filtered_wrench_clip[:3])
+            #np.clip(filtered_wrench[3:], -sensor_torque_threshold, sensor_torque_threshold, filtered_wrench_clip[3:])
+            #filtered_wrench += -1.0 * filtered_wrench_clip
             np.matmul(pose_rt, filtered_wrench[:3], out = wrench_global[:3])
             np.matmul(pose_rt, filtered_wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
@@ -442,15 +450,17 @@ class ur5e_admittance():
             # need to add some safety inertia
 
             acc = np.divide(joint_desired_torque, inertia + self.inertia_offset)
-            pos_relative = self.current_joint_positions - init_pos
+            pr = self.current_joint_positions - init_pos
             if time.time() - start_time > 2.0:
-                vr += (acc - virtual_damping*self.current_joint_velocities - virtual_stiffness*pos_relative) / sample_rate
+                vr += (acc - virtual_damping*self.current_joint_velocities - virtual_stiffness*pr) / sample_rate
 
-            self.wrench_global.data = vr
+            self.wrench_global.data = acc
             self.wrench_global_pub.publish(self.wrench_global)
 
-            vel_ref_array[2] = vr[2]
-            vel_ref_array[0] = vr[0]
+            #vel_ref_array[2] = vr[2]
+            #vel_ref_array[0] = vr[0]
+            #vel_ref_array[1] = vr[1]
+            vel_ref_array = vr
             #print(vr[2])
             np.clip(vel_ref_array,-self.max_joint_speeds,self.max_joint_speeds,vel_ref_array)
             #publish
