@@ -72,8 +72,8 @@ class ur5e_admittance():
     J5l = np.matrix([[0.0027, 0, 0, 0], [0, 0.0034, 0, 0], [0, 0, 0.0027, 0], [0, 0, 0, 1.219]])
     J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, 0], [0, 0, 0, 0.1879]])
 
-    # inertia_offset = np.array([0.4, 0.4, 0.4, 0.1, 0.1, 0.1])
-    inertia_offset = np.array([0.2, 0.2, 0.2, 0.1, 0.1, 0.1])
+    inertia_offset = np.array([0.4, 0.4, 0.4, 0.1, 0.1, 0.1])
+    # inertia_offset = np.array([0.2, 0.2, 0.2, 0.1, 0.1, 0.1])
 
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
@@ -381,7 +381,7 @@ class ur5e_admittance():
         low_joint_vel_lim = 0.5
 
         zeta = 0.707
-        virtual_stiffness = 50.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        virtual_stiffness = 1.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
         joint_torque_error_lower_threshold = np.array([1.0, 1.0, 1.0, 0.2, 0.2, 0.2])
         joint_torque_error_upper_threshold = np.array([1.5, 1.5, 1.5, 0.7, 0.7, 0.7])
@@ -413,6 +413,17 @@ class ur5e_admittance():
         init_pos = deepcopy(self.current_joint_positions)
         last_vel = self.current_joint_velocities
 
+        Ja = self.kdl_kin.jacobian(self.current_joint_positions)
+        pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
+        pose_rt = pose_kdl[:3,:3]
+        wrench = self.current_wrench
+        np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
+        np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+        np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
+        recent_data_focus_coeff = 0.99
+        p = 1 / recent_data_focus_coeff
+        joint_torque_error = joint_desired_torque - virtual_stiffness * (self.current_joint_positions - init_pos)
+
         while not self.shutdown and self.safety_mode == 1: #chutdown is set on ctrl-c.
 
             # jacobian
@@ -420,7 +431,6 @@ class ur5e_admittance():
 
             pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
             pose_rt = pose_kdl[:3,:3]
-            #print(pose_kdl)
 
             wrench = self.current_wrench
             # filtered_wrench = np.array(self.filter.filter(wrench))
@@ -431,6 +441,9 @@ class ur5e_admittance():
             np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
 
+            joint_torque_error = joint_torque_error + p / (1 + p) * (joint_desired_torque - virtual_stiffness * (self.current_joint_positions - init_pos) - joint_torque_error)
+            p = (p - p ** 2 / (1 + p)) / recent_data_focus_coeff
+            jdt = joint_desired_torque - joint_torque_error
 
             # joint inertia
             T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
@@ -453,14 +466,13 @@ class ur5e_admittance():
             inertia[3] = J4[2,2]
             inertia[4] = J5[2,2]
             inertia[5] = J6[2,2]
-            # print(inertia)
 
             # loop rate check
             current_time = time.time()
             relative_time = current_time - start_time
             loop_time = current_time - last_time
             last_time = current_time
-            # print(1/loop_time)
+            print(1/loop_time)
 
             # integration approach
             # joint_torque_error = joint_desired_torque - filtered_joint_desired_torque
@@ -472,7 +484,7 @@ class ur5e_admittance():
             # mixed_joint_torque = filtered_joint_desired_torque + joint_torque_error * ratio
             # damper_torque = 2 * zeta * np.sqrt(virtual_stiffness / (inertia + self.inertia_offset)) * pr
             # acc = (mixed_joint_torque - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (inertia + self.inertia_offset)) * self.current_joint_velocities) / (inertia + self.inertia_offset)
-            acc = (joint_desired_torque - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (inertia + self.inertia_offset)) * self.current_joint_velocities) / (inertia + self.inertia_offset)
+            acc = (jdt - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (inertia + self.inertia_offset)) * self.current_joint_velocities) / (inertia + self.inertia_offset)
             np.clip(acc, -self.max_joint_acc, self.max_joint_acc, acc)
             # if current_time - start_time > 2.0:
             # vr += (acc - spring_torque - virtual_damping * self.current_joint_velocities) / sample_rate
@@ -490,8 +502,8 @@ class ur5e_admittance():
                 # vr = joint_desired_torque - (inertia + self.inertia_offset) * (acc + virtual_damping * self.current_joint_velocities + virtual_stiffness * pr)
                 # np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
 
-            self.test_data.data = ref_pos
-            # self.test_data.data = np.array([filtered_joint_desired_torque[2],joint_desired_torque[2],mixed_joint_torque[2],0.0,0.0,0.0])
+            # self.test_data.data = jdt
+            self.test_data.data = np.array([joint_desired_torque[2], joint_torque_error[2], jdt[2], 0.0, 0.0, 0.0])
             self.test_data_pub.publish(self.test_data)
 
             vel_ref_array[2] = vt[2]
