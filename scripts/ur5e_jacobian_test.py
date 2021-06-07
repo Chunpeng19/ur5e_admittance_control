@@ -381,7 +381,7 @@ class ur5e_admittance():
         low_joint_vel_lim = 0.5
 
         zeta = 0.707
-        virtual_stiffness = 1.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        virtual_stiffness = 5.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
         joint_torque_error_lower_threshold = np.array([1.0, 1.0, 1.0, 0.2, 0.2, 0.2])
         joint_torque_error_upper_threshold = np.array([1.5, 1.5, 1.5, 0.7, 0.7, 0.7])
@@ -422,7 +422,7 @@ class ur5e_admittance():
         np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
         recent_data_focus_coeff = 0.99
         p = 1 / recent_data_focus_coeff
-        joint_torque_error = joint_desired_torque - virtual_stiffness * (self.current_joint_positions - init_pos)
+        joint_torque_error = joint_desired_torque
 
         while not self.shutdown and self.safety_mode == 1: #chutdown is set on ctrl-c.
 
@@ -441,9 +441,14 @@ class ur5e_admittance():
             np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
 
-            joint_torque_error = joint_torque_error + p / (1 + p) * (joint_desired_torque - virtual_stiffness * (self.current_joint_positions - init_pos) - joint_torque_error)
-            p = (p - p ** 2 / (1 + p)) / recent_data_focus_coeff
-            jdt = joint_desired_torque - joint_torque_error
+            if np.any(np.abs(self.current_joint_positions - init_pos)>0.01) or np.any(np.abs(self.current_joint_velocities)>0.001):
+                jdt = joint_desired_torque - joint_torque_error
+                flag = 1
+            else:
+                joint_torque_error = joint_torque_error + p / (1 + p) * (joint_desired_torque - joint_torque_error)
+                p = (p - p ** 2 / (1 + p)) / recent_data_focus_coeff
+                jdt = joint_desired_torque - joint_torque_error
+                flag = -1
 
             # joint inertia
             T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
@@ -503,7 +508,7 @@ class ur5e_admittance():
                 # np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
 
             # self.test_data.data = jdt
-            self.test_data.data = np.array([joint_desired_torque[2], joint_torque_error[2], jdt[2], 0.0, 0.0, 0.0])
+            self.test_data.data = np.array([joint_desired_torque[2], joint_torque_error[2], jdt[2], flag, 0.0, 0.0])
             self.test_data_pub.publish(self.test_data)
 
             vel_ref_array[2] = vt[2]
