@@ -53,8 +53,8 @@ class ur5e_admittance():
     max_joint_speeds = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     max_joint_acc = 2.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
-    fl = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    fh = [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    fl = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    fh = [30.0, 30.0, 30.0, 30.0, 30.0, 30.0]
     fs = sample_rate
     filter = PythonBPF(fs, fl, fh)
     # filter = PythonHPF(fl,fs)
@@ -381,7 +381,7 @@ class ur5e_admittance():
         low_joint_vel_lim = 0.5
 
         zeta = 0.707
-        virtual_stiffness = 5.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        virtual_stiffness = 50.0 * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
         joint_torque_error_lower_threshold = np.array([1.0, 1.0, 1.0, 0.2, 0.2, 0.2])
         joint_torque_error_upper_threshold = np.array([1.5, 1.5, 1.5, 0.7, 0.7, 0.7])
@@ -433,12 +433,12 @@ class ur5e_admittance():
             pose_rt = pose_kdl[:3,:3]
 
             wrench = self.current_wrench
-            # filtered_wrench = np.array(self.filter.filter(wrench))
-            # np.matmul(pose_rt, filtered_wrench[:3], out = filtered_wrench_global[:3])
-            # np.matmul(pose_rt, filtered_wrench[3:], out = filtered_wrench_global[3:])
+            filtered_wrench = np.array(self.filter.filter(wrench))
+            np.matmul(pose_rt, filtered_wrench[:3], out = wrench_global[:3])
+            np.matmul(pose_rt, filtered_wrench[3:], out = wrench_global[3:])
             # np.matmul(Ja.transpose(), filtered_wrench_global, out = filtered_joint_desired_torque)
-            np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
-            np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+            # np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
+            # np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
 
             if np.any(np.abs(self.current_joint_positions - init_pos)>0.01) or np.any(np.abs(self.current_joint_velocities)>0.001):
@@ -512,8 +512,8 @@ class ur5e_admittance():
             self.test_data_pub.publish(self.test_data)
 
             vel_ref_array[2] = vt[2]
-            # vel_ref_array[0] = vt[0]
-            # vel_ref_array[1] = vt[1]
+            vel_ref_array[0] = vt[0]
+            vel_ref_array[1] = vt[1]
             # vel_ref_array[3] = vt[3]
             # vel_ref_array[4] = vt[4]
             # vel_ref_array[5] = vt[5]
