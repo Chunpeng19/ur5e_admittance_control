@@ -385,6 +385,9 @@ class ur5e_admittance():
         zeta = 1.0
         virtual_stiffness = 50.0 * np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0])
 
+        virtual_stiffness_tool = 40.0 * np.array([1, 1, 1, 1, 1, 1])
+        inertia_tool = 20.0 * np.array([1, 1, 1, 1, 1, 1])
+
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
         vt = np.zeros(6)
@@ -423,6 +426,13 @@ class ur5e_admittance():
         recent_data_focus_coeff = 0.99
         p = 1 / recent_data_focus_coeff
         joint_torque_error = joint_desired_torque
+        wrench_global_error = wrench_global
+
+        vd_tool = np.zeros(6)
+        vd = np.zeros(6)
+        vel_tool = np.zeros(6)
+        FK = self.kdl_kin.forward(deepcopy(self.current_joint_positions))
+        init_pos_tool = np.array([FK[0,3],FK[1,3],FK[2,3]])
 
         # online joint gravity, friction, inertia id initialization
         # q = 1 / recent_data_focus_coeff * np.array([np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1])])
@@ -448,11 +458,14 @@ class ur5e_admittance():
             # online joint torque error id
             if np.any(np.abs(self.current_joint_positions - init_pos)>0.01) or np.any(np.abs(self.current_joint_velocities)>0.001):
                 jdt = joint_desired_torque - joint_torque_error
+                wg = wrench_global - wrench_global_error
                 flag = 1
             else:
                 joint_torque_error = joint_torque_error + p / (1 + p) * (joint_desired_torque - joint_torque_error)
+                wrench_global_error = wrench_global_error + p / (1 + p) * (wrench_global - wrench_global_error)
                 p = (p - p ** 2 / (1 + p)) / recent_data_focus_coeff
                 jdt = joint_desired_torque - joint_torque_error
+                wg = wrench_global - wrench_global_error
                 flag = -1
 
             # online joint gravity, friction, inertia id
@@ -492,9 +505,9 @@ class ur5e_admittance():
             relative_time = current_time - start_time
             loop_time = current_time - last_time
             last_time = current_time
-            print(1/loop_time)
+            # print(1/loop_time)
 
-            # integration approach
+            # joint integration approach
             ref_pos = np.sin(1.0 * relative_time) * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]) * 0.1
             pr = self.current_joint_positions - init_pos
             spring_torque = virtual_stiffness * pr
@@ -515,17 +528,28 @@ class ur5e_admittance():
                 # vr = joint_desired_torque - (inertia + self.inertia_offset) * (acc + virtual_damping * self.current_joint_velocities + virtual_stiffness * pr)
                 # np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
 
-            # self.test_data.data = inertia_id
+            # cartesian integration approach
+            FK = self.kdl_kin.forward(self.current_joint_positions)
+            pos_tool = np.array([FK[0,3],FK[1,3],FK[2,3]])
+            relative_pos_tool = np.array([pos_tool - init_pos_tool,[0, 0, 0]]).reshape(-1)
+            np.matmul(Ja, self.current_joint_velocities, out = vel_tool)
+            # wrench global needs zero
+            ad_tool = (wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
+            vd_tool += ad_tool / sample_rate
+            np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
+            np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
+
+            self.test_data.data = vd
             # self.test_data.data = np.array([gfi[0,2],gfi[1,2],gfi[2,2], self.current_joint_velocities[2], current_joint_accelerations[2], 0])
             self.test_data_pub.publish(self.test_data)
 
-            vel_ref_array[2] = vt[2]
+            # vel_ref_array[2] = vt[2]
             # vel_ref_array[0] = vt[0]
             # vel_ref_array[1] = vt[1]
             # vel_ref_array[3] = vt[3]
             # vel_ref_array[4] = vt[4]
             # vel_ref_array[5] = vt[5]
-            #vel_ref_array = vt
+            vel_ref_array = vd
             #print(vr[2])
             np.clip(vel_ref_array,-self.max_joint_speeds,self.max_joint_speeds,vel_ref_array)
             #publish
