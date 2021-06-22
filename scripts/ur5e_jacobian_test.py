@@ -385,8 +385,8 @@ class ur5e_admittance():
         zeta = 1.0
         virtual_stiffness = 50.0 * np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0])
 
-        virtual_stiffness_tool = 40.0 * np.array([1, 1, 1, 1, 1, 1])
-        inertia_tool = 20.0 * np.array([1, 1, 1, 1, 1, 1])
+        virtual_stiffness_tool = 50.0 * np.array([1, 1, 1, 0.5, 0.5, 0.5])
+        inertia_tool = 30.0 * np.array([1, 1, 1, 0.5, 0.5, 0.5])
 
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
@@ -396,7 +396,7 @@ class ur5e_admittance():
         endeffector_vel = np.zeros(6)
         pose = np.zeros((4,4))
         pose_kdl = np.zeros((4,4))
-        pose_rt = np.zeros((3,3))
+        RT = np.zeros((3,3))
         wrench = np.zeros(6)
         filtered_wrench = np.zeros(6)
         filtered_wrench_clip = np.zeros(6)
@@ -416,12 +416,12 @@ class ur5e_admittance():
         last_vel = deepcopy(self.current_joint_velocities)
 
         # online joint torque error id initialization
-        Ja = self.kdl_kin.jacobian(self.current_joint_positions)
-        pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
-        pose_rt = pose_kdl[:3,:3]
+        Ja = self.kdl_kin.jacobian(deepcopy(self.current_joint_positions))
+        FK = self.kdl_kin.forward(deepcopy(self.current_joint_positions))
+        RT = FK[:3,:3]
         wrench = self.current_wrench
-        np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
-        np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+        np.matmul(RT, wrench[:3], out = wrench_global[:3])
+        np.matmul(RT, wrench[3:], out = wrench_global[3:])
         np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
         recent_data_focus_coeff = 0.99
         p = 1 / recent_data_focus_coeff
@@ -431,8 +431,12 @@ class ur5e_admittance():
         vd_tool = np.zeros(6)
         vd = np.zeros(6)
         vel_tool = np.zeros(6)
-        FK = self.kdl_kin.forward(deepcopy(self.current_joint_positions))
-        init_pos_tool = np.array([FK[0,3],FK[1,3],FK[2,3]])
+        init_pos_tool = np.zeros(6)
+        pos_tool = np.zeros(6)
+        init_pos_tool[:3] = np.array([FK[0,3],FK[1,3],FK[2,3]])
+        init_pos_tool[4] = np.arctan2(-RT[2,0], np.sqrt(RT[0,0]**2 + RT[1,0]**2)) # theta
+        init_pos_tool[5] = np.arctan2(RT[1,0]/np.cos(init_pos_tool[4]), RT[0,0]/np.cos(init_pos_tool[4])) # phi
+        init_pos_tool[3] = np.arctan2(RT[2,1]/np.cos(init_pos_tool[4]), RT[2,2]/np.cos(init_pos_tool[4])) # psi
 
         # online joint gravity, friction, inertia id initialization
         # q = 1 / recent_data_focus_coeff * np.array([np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1]), np.diag([1, 1, 1])])
@@ -443,16 +447,13 @@ class ur5e_admittance():
             # jacobian
             Ja = self.kdl_kin.jacobian(self.current_joint_positions)
 
-            pose_kdl = self.kdl_kin.forward(self.current_joint_positions)
-            pose_rt = pose_kdl[:3,:3]
+            FK = self.kdl_kin.forward(self.current_joint_positions)
+            RT = FK[:3,:3]
 
             wrench = self.current_wrench
             filtered_wrench = np.array(self.filter.filter(wrench))
-            np.matmul(pose_rt, filtered_wrench[:3], out = wrench_global[:3])
-            np.matmul(pose_rt, filtered_wrench[3:], out = wrench_global[3:])
-            # np.matmul(Ja.transpose(), filtered_wrench_global, out = filtered_joint_desired_torque)
-            # np.matmul(pose_rt, wrench[:3], out = wrench_global[:3])
-            # np.matmul(pose_rt, wrench[3:], out = wrench_global[3:])
+            np.matmul(RT, filtered_wrench[:3], out = wrench_global[:3])
+            np.matmul(RT, filtered_wrench[3:], out = wrench_global[3:])
             np.matmul(Ja.transpose(), wrench_global, out = joint_desired_torque)
 
             # online joint torque error id
@@ -529,18 +530,33 @@ class ur5e_admittance():
                 # np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
 
             # cartesian integration approach
-            FK = self.kdl_kin.forward(self.current_joint_positions)
-            pos_tool = np.array([FK[0,3],FK[1,3],FK[2,3]])
-            relative_pos_tool = np.array([pos_tool - init_pos_tool,[0, 0, 0]]).reshape(-1)
+
+            pos_tool[:3] = np.array([FK[0,3],FK[1,3],FK[2,3]])
+            pos_tool[4] = np.arctan2(-RT[2,0], np.sqrt(RT[0,0]**2 + RT[1,0]**2)) # theta
+            pos_tool[5] = np.arctan2(RT[1,0]/np.cos(pos_tool[4]), RT[0,0]/np.cos(pos_tool[4])) # phi
+            pos_tool[3] = np.arctan2(RT[2,1]/np.cos(pos_tool[4]), RT[2,2]/np.cos(pos_tool[4])) # psi
+            # unwrap rotation position angle to go beyond -pi and pi
+            for i in range(3,6):
+                if pos_tool[i] - init_pos_tool[i] > np.pi:
+                    pos_tool[i] = pos_tool[i] - 2*np.pi
+                elif pos_tool[i] - init_pos_tool[i] < -np.pi:
+                    pos_tool[i] = pos_tool[i] + 2*np.pi
+
+            relative_pos_tool = pos_tool - init_pos_tool
+            relative_pos_tool[3] = -relative_pos_tool[3]
+            relative_pos_tool[4] = -relative_pos_tool[4]
+            # print(pos_tool)
             np.matmul(Ja, self.current_joint_velocities, out = vel_tool)
             # wrench global needs zero
             ad_tool = (wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
             vd_tool += ad_tool / sample_rate
+            # turn on or turn off rotation
+            vd_tool[3:] = np.array([0,0,0])
             np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
             np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
 
-            self.test_data.data = vd
-            # self.test_data.data = np.array([gfi[0,2],gfi[1,2],gfi[2,2], self.current_joint_velocities[2], current_joint_accelerations[2], 0])
+            # self.test_data.data = wrench_global
+            self.test_data.data = np.array([vel_tool[3:],relative_pos_tool[3:]]).reshape(-1)
             self.test_data_pub.publish(self.test_data)
 
             # vel_ref_array[2] = vt[2]
