@@ -385,8 +385,8 @@ class ur5e_admittance():
         zeta = 1.0
         virtual_stiffness = 50.0 * np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0])
 
-        virtual_stiffness_tool = 50.0 * np.array([1, 1, 1, 0.5, 0.5, 0.5])
-        inertia_tool = 30.0 * np.array([1, 1, 1, 0.5, 0.5, 0.5])
+        virtual_stiffness_tool = 50.0 * np.array([1, 1, 1, 0.05, 0.05, 0.05])
+        inertia_tool = 25.0 * np.array([1, 1, 1, 0.05, 0.05, 0.05])
 
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
@@ -480,26 +480,26 @@ class ur5e_admittance():
             # print(inertia_id)
 
             # joint inertia
-            T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
-            T2t1 = forward_link(np.array([self.current_joint_positions[1], self.DH_d[1], self.DH_a[1], self.DH_alpha[1]]))
-            T3t2 = forward_link(np.array([self.current_joint_positions[2], self.DH_d[2], self.DH_a[2], self.DH_alpha[2]]))
-            T4t3 = forward_link(np.array([self.current_joint_positions[3], self.DH_d[3], self.DH_a[3], self.DH_alpha[3]]))
-            T5t4 = forward_link(np.array([self.current_joint_positions[4], self.DH_d[4], self.DH_a[4], self.DH_alpha[4]]))
-            T6t5 = forward_link(np.array([self.current_joint_positions[5], self.DH_d[5], self.DH_a[5], self.DH_alpha[5]]))
+            # T1tb = forward_link(np.array([self.current_joint_positions[0], self.DH_d[0], self.DH_a[0], self.DH_alpha[0]]))
+            # T2t1 = forward_link(np.array([self.current_joint_positions[1], self.DH_d[1], self.DH_a[1], self.DH_alpha[1]]))
+            # T3t2 = forward_link(np.array([self.current_joint_positions[2], self.DH_d[2], self.DH_a[2], self.DH_alpha[2]]))
+            # T4t3 = forward_link(np.array([self.current_joint_positions[3], self.DH_d[3], self.DH_a[3], self.DH_alpha[3]]))
+            # T5t4 = forward_link(np.array([self.current_joint_positions[4], self.DH_d[4], self.DH_a[4], self.DH_alpha[4]]))
+            # T6t5 = forward_link(np.array([self.current_joint_positions[5], self.DH_d[5], self.DH_a[5], self.DH_alpha[5]]))
 
-            J6 = self.J6l
-            J5 = self.J5l + np.matmul(np.matmul(T6t5,J6),T6t5.transpose())
-            J4 = self.J4l + np.matmul(np.matmul(T5t4,J5),T5t4.transpose())
-            J3 = self.J3l + np.matmul(np.matmul(T4t3,J4),T4t3.transpose())
-            J2 = self.J2l + np.matmul(np.matmul(T3t2,J3),T3t2.transpose())
-            J1 = self.J1l + np.matmul(np.matmul(T2t1,J2),T2t1.transpose())
+            # J6 = self.J6l
+            # J5 = self.J5l + np.matmul(np.matmul(T6t5,J6),T6t5.transpose())
+            # J4 = self.J4l + np.matmul(np.matmul(T5t4,J5),T5t4.transpose())
+            # J3 = self.J3l + np.matmul(np.matmul(T4t3,J4),T4t3.transpose())
+            # J2 = self.J2l + np.matmul(np.matmul(T3t2,J3),T3t2.transpose())
+            # J1 = self.J1l + np.matmul(np.matmul(T2t1,J2),T2t1.transpose())
 
-            inertia[0] = J1[2,2]
-            inertia[1] = J2[2,2]
-            inertia[2] = J3[2,2]
-            inertia[3] = J4[2,2]
-            inertia[4] = J5[2,2]
-            inertia[5] = J6[2,2]
+            # inertia[0] = J1[2,2]
+            # inertia[1] = J2[2,2]
+            # inertia[2] = J3[2,2]
+            # inertia[3] = J4[2,2]
+            # inertia[4] = J5[2,2]
+            # inertia[5] = J6[2,2]
 
             # loop rate check
             current_time = time.time()
@@ -512,7 +512,8 @@ class ur5e_admittance():
             ref_pos = np.sin(1.0 * relative_time) * np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]) * 0.1
             pr = self.current_joint_positions - init_pos
             spring_torque = virtual_stiffness * pr
-            acc = (jdt - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (inertia + self.inertia_offset)) * self.current_joint_velocities) / (inertia + self.inertia_offset)
+            # acc = (jdt - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (inertia + self.inertia_offset)) * self.current_joint_velocities) / (inertia + self.inertia_offset)
+            acc = (jdt - spring_torque - 2 * zeta * np.sqrt(virtual_stiffness * (self.inertia_offset)) * self.current_joint_velocities) / (self.inertia_offset)
             np.clip(acc, -self.max_joint_acc, self.max_joint_acc, acc)
             vr += acc / sample_rate
             np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
@@ -551,12 +552,12 @@ class ur5e_admittance():
             ad_tool = (wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
             vd_tool += ad_tool / sample_rate
             # turn on or turn off rotation
-            vd_tool[3:] = np.array([0,0,0])
+            # vd_tool[3:] = np.array([0,0,0])
             np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
             np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
 
-            # self.test_data.data = wrench_global
-            self.test_data.data = np.array([vel_tool[3:],relative_pos_tool[3:]]).reshape(-1)
+            self.test_data.data = relative_pos_tool
+            # self.test_data.data = np.array([vel_tool[3:],relative_pos_tool[3:]]).reshape(-1)
             self.test_data_pub.publish(self.test_data)
 
             # vel_ref_array[2] = vt[2]
