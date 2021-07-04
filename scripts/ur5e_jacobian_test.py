@@ -73,7 +73,7 @@ class ur5e_admittance():
     J6l = np.matrix([[0.00025, 0, 0, 0], [0, 0.00025, 0, 0], [0, 0, 0.00019, 0], [0, 0, 0, 0.1879]])
 
     # inertia_offset = np.array([0.4, 0.4, 0.4, 0.1, 0.1, 0.1])
-    inertia_offset = np.array([5.0, 5.0, 5.0, 0.2, 0.2, 0.2])
+    inertia_offset = np.array([5.0, 5.0, 5.0, 1.0, 1.0, 1.0])
 
     #define fields that are updated by the subscriber callbacks
     current_joint_positions = np.zeros(6)
@@ -385,8 +385,8 @@ class ur5e_admittance():
         zeta = 1.0
         virtual_stiffness = 50.0 * np.array([0.5, 1.0, 1.0, 1.0, 1.0, 1.0])
 
-        virtual_stiffness_tool = 50.0 * np.array([1, 1, 1, 0.05, 0.05, 0.05])
-        inertia_tool = 25.0 * np.array([1, 1, 1, 0.05, 0.05, 0.05])
+        virtual_stiffness_tool = 100.0 * np.array([1, 1, 1, 0.1, 0.1, 0.1])
+        inertia_tool = 30.0 * np.array([1, 1, 1, 0.1, 0.1, 0.1])
 
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
@@ -395,17 +395,14 @@ class ur5e_admittance():
         desired_effort = np.zeros(6)
         endeffector_vel = np.zeros(6)
         pose = np.zeros((4,4))
-        pose_kdl = np.zeros((4,4))
         RT = np.zeros((3,3))
         wrench = np.zeros(6)
         filtered_wrench = np.zeros(6)
-        filtered_wrench_clip = np.zeros(6)
         wrench_global = np.zeros(6)
         filtered_wrench_global = np.zeros(6)
         inertia = np.zeros(6)
         joint_desired_torque = np.zeros(6)
         filtered_joint_desired_torque = np.zeros(6)
-        ratio = np.zeros(6)
         rate = rospy.Rate(500)
 
         self.filter.calculate_initial_values(deepcopy(self.current_wrench))
@@ -433,6 +430,7 @@ class ur5e_admittance():
         vel_tool = np.zeros(6)
         init_pos_tool = np.zeros(6)
         pos_tool = np.zeros(6)
+        torque_joint = np.zeros(6)
         init_pos_tool[:3] = np.array([FK[0,3],FK[1,3],FK[2,3]])
         init_pos_tool[4] = np.arctan2(-RT[2,0], np.sqrt(RT[0,0]**2 + RT[1,0]**2)) # theta
         init_pos_tool[5] = np.arctan2(RT[1,0]/np.cos(init_pos_tool[4]), RT[0,0]/np.cos(init_pos_tool[4])) # phi
@@ -549,11 +547,23 @@ class ur5e_admittance():
             # print(pos_tool)
             np.matmul(Ja, self.current_joint_velocities, out = vel_tool)
             # wrench global needs zero
+
+            # tool space inertia
             ad_tool = (wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
             vd_tool += ad_tool / sample_rate
             # turn on or turn off rotation
-            # vd_tool[3:] = np.array([0,0,0])
+            vd_tool[3:5] = np.array([0,0])
             np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
+
+            # joint space inertia
+            # force_tool = wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool
+            # force_tool[3:6] = np.array([0,0,0])
+            # np.matmul(Ja.transpose(), force_tool, out = torque_joint)
+            # ad_joint = torque_joint / self.inertia_offset
+            # print(ad_joint)
+            # vd += ad_joint / sample_rate
+            # joint drift happens
+
             np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
 
             self.test_data.data = relative_pos_tool
