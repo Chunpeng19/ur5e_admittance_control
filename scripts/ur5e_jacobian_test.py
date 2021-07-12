@@ -429,6 +429,8 @@ class ur5e_admittance():
         vd = np.zeros(6)
         vel_tool = np.zeros(6)
         init_pos_tool = np.zeros(6)
+        ini_pos_tool_off = [[-0.3, 0, -0.25, 0, 0, 0],[0.3, 0, -0.25, 0, 0, 0]]
+        pos_index = 0
         pos_tool = np.zeros(6)
         torque_joint = np.zeros(6)
         init_pos_tool[:3] = np.array([FK[0,3],FK[1,3],FK[2,3]])
@@ -529,7 +531,6 @@ class ur5e_admittance():
                 # np.clip(vr,-self.max_joint_speeds,self.max_joint_speeds,vr)
 
             # cartesian integration approach
-
             pos_tool[:3] = np.array([FK[0,3],FK[1,3],FK[2,3]])
             pos_tool[4] = np.arctan2(-RT[2,0], np.sqrt(RT[0,0]**2 + RT[1,0]**2)) # theta
             pos_tool[5] = np.arctan2(RT[1,0]/np.cos(pos_tool[4]), RT[0,0]/np.cos(pos_tool[4])) # phi
@@ -541,6 +542,12 @@ class ur5e_admittance():
                 elif pos_tool[i] - init_pos_tool[i] < -np.pi:
                     pos_tool[i] = pos_tool[i] + 2*np.pi
 
+            # two-points move
+            # relative_pos_tool = pos_tool - init_pos_tool - ini_pos_tool_off[pos_index]
+            # if np.all(np.abs(relative_pos_tool)<0.0001) and np.all(np.abs(self.current_joint_velocities)<0.001):
+                # pos_index = (pos_index + 1) % 2
+
+            # set zero point
             relative_pos_tool = pos_tool - init_pos_tool
             relative_pos_tool[3] = -relative_pos_tool[3]
             relative_pos_tool[4] = -relative_pos_tool[4]
@@ -550,9 +557,10 @@ class ur5e_admittance():
 
             # tool space inertia
             ad_tool = (wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
+            # ad_tool = (- virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool) / inertia_tool
             vd_tool += ad_tool / sample_rate
             # turn on or turn off rotation
-            vd_tool[3:5] = np.array([0,0])
+            # vd_tool[3:5] = np.array([0,0])
             np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
 
             # joint space inertia
@@ -562,7 +570,7 @@ class ur5e_admittance():
             # ad_joint = torque_joint / self.inertia_offset
             # print(ad_joint)
             # vd += ad_joint / sample_rate
-            # joint drift happens
+            # unable to control a separate axis
 
             np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
 
@@ -570,12 +578,6 @@ class ur5e_admittance():
             # self.test_data.data = np.array([vel_tool[3:],relative_pos_tool[3:]]).reshape(-1)
             self.test_data_pub.publish(self.test_data)
 
-            # vel_ref_array[2] = vt[2]
-            # vel_ref_array[0] = vt[0]
-            # vel_ref_array[1] = vt[1]
-            # vel_ref_array[3] = vt[3]
-            # vel_ref_array[4] = vt[4]
-            # vel_ref_array[5] = vt[5]
             vel_ref_array = vd
             #print(vr[2])
             np.clip(vel_ref_array,-self.max_joint_speeds,self.max_joint_speeds,vel_ref_array)
