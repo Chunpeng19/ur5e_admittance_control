@@ -40,8 +40,8 @@ class ur5e_admittance():
 
     joint_p_gains_varaible = np.array([5.0, 5.0, 5.0, 10.0, 10.0, 10.0])
 
-    #default_pos = (np.pi/180)*np.array([90.0, -90.0, 90.0, -90.0, -90.0, 180.0])
     default_pos = (np.pi/180)*np.array([90.0, -90.0, 90.0, -90.0, -90.0, 180.0])
+    # default_pos = (np.pi/180)*np.array([90.0, -20.0, 1.0, -90.0, -1.0, 180.0])
 
 
     robot_ref_pos = deepcopy(default_pos)
@@ -388,6 +388,8 @@ class ur5e_admittance():
         virtual_stiffness_tool = 100.0 * np.array([1, 1, 1, 0.1, 0.1, 0.1])
         inertia_tool = 30.0 * np.array([1, 1, 1, 0.1, 0.1, 0.1])
 
+        pin_damping = 0.05
+
         vel_ref_array = np.zeros(6)
         vr = np.zeros(6)
         vt = np.zeros(6)
@@ -561,7 +563,12 @@ class ur5e_admittance():
             vd_tool += ad_tool / sample_rate
             # turn on or turn off rotation
             # vd_tool[3:5] = np.array([0,0])
-            np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
+            # use damped psedu inv to replace direct inverse
+            damped_psedu_inv = np.matmul(Ja.transpose(),np.linalg.inv(np.matmul(Ja,Ja.transpose()) + pin_damping**2*np.identity(6)))
+            # np.matmul(np.linalg.inv(Ja), vd_tool, out = vd)
+            np.matmul(damped_psedu_inv, vd_tool, out = vd)
+            # u,s,vh = np.linalg.svd(Ja)
+            # print(vd)
 
             # joint space inertia
             # force_tool = wg - virtual_stiffness_tool * relative_pos_tool - 2 * zeta * np.sqrt(virtual_stiffness_tool * inertia_tool) * vel_tool
@@ -575,7 +582,7 @@ class ur5e_admittance():
             np.clip(vd,-self.max_joint_speeds,self.max_joint_speeds,vd)
 
             self.test_data.data = relative_pos_tool
-            # self.test_data.data = np.array([vel_tool[3:],relative_pos_tool[3:]]).reshape(-1)
+            # self.test_data.data = np.array([jadet,0,0,0,0,0])
             self.test_data_pub.publish(self.test_data)
 
             vel_ref_array = vd
